@@ -292,6 +292,126 @@ function formatColor(value, fmt) {
   return p.alpha < 1 ? `${p.hex} / ${Math.round(p.alpha * 100)}%` : p.hex;
 }
 
+function ColorInput({ value, fmt, onChange, onToast }) {
+  const inputRef = useRef(null);
+  const formatted = formatColor(value, FORMATS[fmt]);
+  const [localVal, setLocalVal] = useState(formatted);
+  const debounceRef = useRef(null);
+
+  // Sync from external changes (picker, presets)
+  useEffect(() => {
+    if (document.activeElement !== inputRef.current) {
+      setLocalVal(formatColor(value, FORMATS[fmt]));
+    }
+  }, [value, fmt]);
+
+  const tryApply = (v) => {
+    const trimmed = v.trim();
+    if (trimmed === 'transparent') { onChange('transparent'); return; }
+    if (isValidColor(trimmed)) { onChange(trimmed); }
+  };
+
+  const handleChange = (e) => {
+    const v = e.target.value;
+    setLocalVal(v);
+    clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => tryApply(v), 300);
+  };
+
+  const handleBlur = () => {
+    clearTimeout(debounceRef.current);
+    const trimmed = localVal.trim();
+    if (trimmed === 'transparent') { onChange('transparent'); }
+    else if (isValidColor(trimmed)) { onChange(trimmed); }
+    else { onChange('#000000'); onToast && onToast('Invalid color — reset to black'); }
+    // Re-sync display
+    setTimeout(() => setLocalVal(formatColor(
+      isValidColor(trimmed) ? trimmed : '#000000', FORMATS[fmt]
+    )), 0);
+  };
+
+  const handleKeyDown = (e) => {
+    if (e.key === 'Enter') { e.target.blur(); return; }
+    if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
+
+    const curFmt = FORMATS[fmt];
+    if (curFmt === 'hex') return; // No octet adjustment for hex
+
+    e.preventDefault();
+    const delta = e.key === 'ArrowUp' ? 1 : -1;
+    const step = e.shiftKey ? 10 : 1;
+    const pos = e.target.selectionStart;
+    const text = localVal;
+
+    // Find all numbers in the string and which one the cursor is in/near
+    const numRegex = /[\d.]+/g;
+    let match;
+    const nums = [];
+    while ((match = numRegex.exec(text)) !== null) {
+      nums.push({ value: match[0], start: match.index, end: match.index + match[0].length });
+    }
+
+    // Find the number closest to cursor
+    let target = null;
+    for (const n of nums) {
+      if (pos >= n.start && pos <= n.end) { target = n; break; }
+    }
+    if (!target) {
+      // Find nearest
+      let minDist = Infinity;
+      for (const n of nums) {
+        const dist = Math.min(Math.abs(pos - n.start), Math.abs(pos - n.end));
+        if (dist < minDist) { minDist = dist; target = n; }
+      }
+    }
+    if (!target) return;
+
+    const idx = nums.indexOf(target);
+    const isFloat = target.value.includes('.');
+    let num = parseFloat(target.value);
+    num += delta * step;
+
+    // Clamp based on position in the format
+    if (curFmt === 'rgba') {
+      if (idx < 3) num = Math.max(0, Math.min(255, Math.round(num))); // r, g, b
+      else num = Math.max(0, Math.min(1, Math.round(num * 100) / 100)); // alpha
+    } else if (curFmt === 'hsla') {
+      if (idx === 0) num = ((num % 360) + 360) % 360; // hue wraps
+      else if (idx < 3) num = Math.max(0, Math.min(100, Math.round(num))); // s%, l%
+      else num = Math.max(0, Math.min(1, Math.round(num * 100) / 100)); // alpha
+    }
+
+    const newStr = isFloat && idx >= 3 ? num.toFixed(2) : String(Math.round(num));
+    const newText = text.substring(0, target.start) + newStr + text.substring(target.end);
+    setLocalVal(newText);
+    tryApply(newText);
+
+    // Restore cursor position within the number
+    const cursorPos = target.start + newStr.length;
+    setTimeout(() => {
+      if (inputRef.current) {
+        inputRef.current.setSelectionRange(target.start, cursorPos);
+      }
+    }, 0);
+  };
+
+  return (
+    <input
+      ref={inputRef}
+      className="mono"
+      type="text"
+      value={localVal}
+      onChange={handleChange}
+      onBlur={handleBlur}
+      onKeyDown={handleKeyDown}
+      style={{
+        width: 220, padding: '6px 8px', background: '#1a1a1a', border: '1px solid #333',
+        borderRadius: 0, color: '#ccc', fontSize: 11, textAlign: 'center',
+      }}
+    />
+  );
+}
+
 function ColorField({ label, value, onChange, element, visible, onToggleVisibility, onHover, onLeave, onToast, fmt, onFmtChange }) {
   const [open, setOpen] = useState(false);
   const [lastColor, setLastColor] = useState('#1D1627');
@@ -361,23 +481,7 @@ function ColorField({ label, value, onChange, element, visible, onToggleVisibili
               <rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
             </svg>
           </button>
-          <input
-            className="mono"
-            type="text"
-            defaultValue={formatColor(value, FORMATS[fmt])}
-            key={formatColor(value, FORMATS[fmt])}
-            onBlur={e => {
-              const v = e.target.value.trim();
-              if (v === 'transparent') { onChange('transparent'); }
-              else if (isValidColor(v)) { onChange(v); }
-              else { onChange('#000000'); onToast && onToast('Invalid color — reset to black'); }
-            }}
-            onKeyDown={e => { if (e.key === 'Enter') e.target.blur(); }}
-            style={{
-              width: 220, padding: '6px 8px', background: '#1a1a1a', border: '1px solid #333',
-              borderRadius: 0, color: '#ccc', fontSize: 11, textAlign: 'center',
-            }}
-          />
+          <ColorInput value={value} fmt={fmt} onChange={onChange} onToast={onToast} />
           <div style={{ display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
             <button className="icon-btn" onClick={() => setFmt(f => (f - 1 + FORMATS.length) % FORMATS.length)} title={FORMATS[(fmt - 1 + FORMATS.length) % FORMATS.length]} style={{
               width: 22, height: 14, background: '#1a1a1a', border: '1px solid #333', borderLeft: 'none', borderBottom: 'none',
