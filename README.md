@@ -2,6 +2,8 @@
 
 A standalone, zero-dependency SVG color editor with real-time preview. Edit individual SVG element colors with a full color picker, link layers to sync colors, toggle visibility, and export clean SVGs — all from a single HTML file.
 
+![SVG Palette Editor](screenshot.png)
+
 ## Features
 
 ### Color Editing
