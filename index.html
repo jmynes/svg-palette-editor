@@ -237,6 +237,15 @@ function ColorPicker({ color, onChange }) {
 // === Color field with expandable picker ===
 const FORMATS = ['hex', 'rgba', 'hsla'];
 
+function isValidColor(value) {
+  if (value === 'transparent') return true;
+  if (/^#[0-9A-Fa-f]{6}$/.test(value)) return true;
+  if (/^#[0-9A-Fa-f]{3}$/.test(value)) return true;
+  if (/^rgba?\(\s*\d+\s*,\s*\d+\s*,\s*\d+\s*(,\s*[\d.]+\s*)?\)$/.test(value)) return true;
+  if (/^hsla?\(\s*\d+\s*,\s*\d+%?\s*,\s*\d+%?\s*(,\s*[\d.]+\s*)?\)$/.test(value)) return true;
+  return false;
+}
+
 function formatColor(value, fmt) {
   if (value === 'transparent') return 'transparent';
   const p = parseColor(value);
@@ -325,8 +334,15 @@ function ColorField({ label, value, onChange, element, visible, onToggleVisibili
           <input
             className="mono"
             type="text"
-            value={formatColor(value, FORMATS[fmt])}
-            onChange={e => onChange(e.target.value)}
+            defaultValue={formatColor(value, FORMATS[fmt])}
+            key={formatColor(value, FORMATS[fmt])}
+            onBlur={e => {
+              const v = e.target.value.trim();
+              if (v === 'transparent') { onChange('transparent'); }
+              else if (isValidColor(v)) { onChange(v); }
+              else { onChange('#000000'); onToast && onToast('Invalid color — reset to black'); }
+            }}
+            onKeyDown={e => { if (e.key === 'Enter') e.target.blur(); }}
             style={{
               width: 220, padding: '6px 8px', background: '#1a1a1a', border: '1px solid #333',
               borderRadius: 0, color: '#ccc', fontSize: 11, textAlign: 'center',
