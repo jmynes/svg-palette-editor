@@ -352,15 +352,16 @@ function ColorInput({ value, fmt, onChange, onToast }) {
     if (nums.length === 0) return;
 
     // Find which number the cursor is in or nearest to
-    let target = nums.find(n => pos >= n.start && pos <= n.end);
-    if (!target) {
-      target = nums.reduce((best, n) => {
+    let idx = nums.findIndex(n => pos >= n.start && pos <= n.end);
+    if (idx === -1) {
+      let minDist = Infinity;
+      nums.forEach((n, i) => {
         const d = Math.min(Math.abs(pos - n.start), Math.abs(pos - n.end));
-        return d < best.d ? { ...n, d } : best;
-      }, { ...nums[0], d: Infinity });
+        if (d < minDist) { minDist = d; idx = i; }
+      });
     }
-
-    const idx = nums.indexOf(target);
+    if (idx === -1) return;
+    const target = nums[idx];
     const isAlpha = idx === 3;
     const step = isAlpha ? (e.shiftKey ? 0.10 : 0.01) : (e.shiftKey ? 10 : 1);
 
