@@ -19,6 +19,7 @@
   .icon-btn { transition: color 0.15s, background 0.15s, border-color 0.15s; }
   .icon-btn:hover { color: #ddd !important; background: #2a2a2a !important; border-color: #555 !important; }
   @keyframes toast-in { from { opacity: 0; transform: translateX(-50%) translateY(8px); } to { opacity: 1; transform: translateX(-50%) translateY(0); } }
+  @keyframes pulse-link { 0%, 100% { opacity: 0.4; } 50% { opacity: 1; } }
 </style>
 </head>
 <body>
@@ -563,10 +564,11 @@ const PRESETS = [
   { name: 'Transparent', bg: 'transparent', letter: '#FFFFFF', line1: '#F74344', line2: '#F74344', line3: '#FFFFFF', box: '#FFFFFF' },
 ];
 
-function PuntIcon({ bg, letter, line1, line2, line3, box, vis = {}, hovered = null, size = 264 }) {
+function PuntIcon({ bg, letter, line1, line2, line3, box, vis = {}, hoveredSet = null, size = 264 }) {
   const v = { bg: true, letter: true, line1: true, line2: true, line3: true, box: true, ...vis };
-  const glow = (key) => hovered === key ? { filter: 'drop-shadow(0 0 6px rgba(229,57,53,0.9))', transition: 'filter 0.15s' } : { transition: 'filter 0.15s' };
-  const dim = (key) => (hovered && hovered !== key) ? 0.25 : 1;
+  const isHovered = (key) => hoveredSet && hoveredSet.has(key);
+  const glow = (key) => isHovered(key) ? { filter: 'drop-shadow(0 0 6px rgba(229,57,53,0.9))', transition: 'filter 0.15s' } : { transition: 'filter 0.15s' };
+  const dim = (key) => (hoveredSet && !isHovered(key)) ? 0.25 : 1;
   return (
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="8 7 264 264" width={size} height={size}>
       {v.bg && bg !== 'transparent' && <rect fill={bg} opacity={dim('bg')} x="0" y="0" width="290" height="290" style={glow('bg')}/>}
@@ -595,37 +597,70 @@ function App() {
   const [highlightOnHover, setHighlightOnHover] = useState(true);
   // Link groups: array of Sets. Each Set contains layer IDs that are synced.
   const [linkGroups, setLinkGroups] = useState([]);
+  const [linkingFrom, setLinkingFrom] = useState(null); // ID of layer waiting to be linked
   const LINK_COLORS = ['#E53935', '#2196F3', '#4CAF50', '#FF9800', '#AB47BC'];
 
   const getGroupForLayer = (id) => linkGroups.findIndex(g => g.has(id));
   const getGroupColor = (idx) => idx >= 0 ? LINK_COLORS[idx % LINK_COLORS.length] : null;
 
-  // Toggle link between two adjacent layers
-  const toggleLink = (idA, idB) => {
-    setLinkGroups(prev => {
-      const groups = prev.map(g => new Set(g));
-      const gA = groups.findIndex(g => g.has(idA));
-      const gB = groups.findIndex(g => g.has(idB));
-
-      if (gA >= 0 && gA === gB) {
-        // Already in same group — unlink by splitting
-        groups[gA].delete(idB);
-        if (groups[gA].size < 2) groups.splice(gA, 1);
-        return groups;
+  // Click a layer's link button: first click selects it, second click links to it
+  const handleLinkClick = (id) => {
+    if (linkingFrom === null) {
+      // Check if already in a group — if so, unlink it
+      const gi = getGroupForLayer(id);
+      if (gi >= 0) {
+        setLinkGroups(prev => {
+          const groups = prev.map(g => new Set(g));
+          groups[gi].delete(id);
+          if (groups[gi].size < 2) groups.splice(gi, 1);
+          return groups;
+        });
+        showToast('Unlinked layer');
+        return;
       }
-      if (gA >= 0 && gB >= 0) {
-        // Merge two groups
-        for (const id of groups[gB]) groups[gA].add(id);
-        groups.splice(gB, 1);
+      // Start linking
+      setLinkingFrom(id);
+      showToast('Click another layer to link');
+    } else if (linkingFrom === id) {
+      // Cancel
+      setLinkingFrom(null);
+      showToast('Link cancelled');
+    } else {
+      // Complete link
+      setLinkGroups(prev => {
+        const groups = prev.map(g => new Set(g));
+        const gA = groups.findIndex(g => g.has(linkingFrom));
+        const gB = groups.findIndex(g => g.has(id));
+        if (gA >= 0 && gA === gB) { setLinkingFrom(null); return groups; } // already linked
+        if (gA >= 0 && gB >= 0) {
+          for (const x of groups[gB]) groups[gA].add(x);
+          groups.splice(gB, 1);
+        } else if (gA >= 0) { groups[gA].add(id); }
+        else if (gB >= 0) { groups[gB].add(linkingFrom); }
+        else { groups.push(new Set([linkingFrom, id])); }
         return groups;
-      }
-      if (gA >= 0) { groups[gA].add(idB); return groups; }
-      if (gB >= 0) { groups[gB].add(idA); return groups; }
-      // Neither in a group — create new
-      groups.push(new Set([idA, idB]));
-      return groups;
-    });
+      });
+      setLinkingFrom(null);
+      showToast('Layers linked');
+    }
   };
+
+  // Escape cancels linking mode
+  useEffect(() => {
+    if (linkingFrom === null) return;
+    const handler = (e) => { if (e.key === 'Escape') { setLinkingFrom(null); showToast('Link cancelled'); } };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, [linkingFrom]);
+
+  // Expand hovered layer to include linked layers
+  const getHoveredLayers = () => {
+    if (!hoveredLayer || !highlightOnHover) return null;
+    const gi = getGroupForLayer(hoveredLayer);
+    if (gi >= 0) return linkGroups[gi];
+    return new Set([hoveredLayer]);
+  };
+  const hoveredSet = getHoveredLayers();
 
   // Wrap a setter to propagate to linked layers
   const SETTERS = { bg: setBg, letter: setLetter, line1: setLine1, line2: setLine2, line3: setLine3, box: setBox };
@@ -679,7 +714,7 @@ function App() {
     showToast('Copied all colors');
   };
 
-  const colors = { bg, letter, line1, line2, line3, box, vis, hovered: highlightOnHover ? hoveredLayer : null };
+  const colors = { bg, letter, line1, line2, line3, box, vis, hoveredSet };
 
   return (
     <div style={{ display: 'flex', height: '100vh', overflow: 'hidden' }}>
@@ -762,15 +797,19 @@ function App() {
             return fields.map((f, i) => {
               const gi = getGroupForLayer(f.id);
               const groupColor = getGroupColor(gi);
+              const isLinking = linkingFrom === f.id;
+              const isLinkTarget = linkingFrom !== null && linkingFrom !== f.id;
               return (
                 <React.Fragment key={f.id}>
-                  <div style={{ display: 'flex' }}>
-                    {/* Link group indicator bar */}
-                    <div style={{
-                      width: 3, flexShrink: 0, borderRadius: 2, marginRight: 4,
-                      background: groupColor || 'transparent',
-                      transition: 'background 0.2s',
-                    }} />
+                  <div style={{
+                    display: 'flex',
+                    borderLeft: `3px solid ${groupColor || 'transparent'}`,
+                    paddingLeft: 4,
+                    transition: 'border-color 0.2s',
+                    ...(isLinking ? { background: '#1a1a1a', borderRadius: 6 } : {}),
+                    ...(isLinkTarget ? { cursor: 'pointer' } : {}),
+                  }}
+                  onClick={isLinkTarget ? () => handleLinkClick(f.id) : undefined}>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <ColorField label={f.label} element={f.element} value={f.value}
                         onChange={(v) => linkedSet(f.id, v)}
@@ -778,45 +817,33 @@ function App() {
                         onHover={() => setHoveredLayer(f.id)} onLeave={() => setHoveredLayer(null)}
                         onToast={showToast} fmt={fmts[f.id]} onFmtChange={(v) => setFmt(f.id, v)} />
                     </div>
+                    {/* Link button */}
+                    <button className="icon-btn" onClick={(e) => { e.stopPropagation(); handleLinkClick(f.id); }}
+                      title={gi >= 0 ? 'Unlink' : linkingFrom ? 'Link to this layer' : 'Link to another layer'}
+                      style={{
+                        width: 28, height: 28, background: isLinking ? '#2a2a2a' : 'none',
+                        border: '1px solid transparent', borderRadius: 4, cursor: 'pointer',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        flexShrink: 0, alignSelf: 'center',
+                        color: isLinking ? '#E53935' : groupColor || (isLinkTarget ? '#888' : '#333'),
+                        animation: isLinkTarget ? 'pulse-link 1.5s ease infinite' : 'none',
+                      }}>
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        {gi >= 0 ? (
+                          <>
+                            <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
+                            <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
+                          </>
+                        ) : (
+                          <>
+                            <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
+                            <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" strokeDasharray="4 3"/>
+                          </>
+                        )}
+                      </svg>
+                    </button>
                   </div>
-                  {i < fields.length - 1 && (
-                    <div style={{ display: 'flex', alignItems: 'center', margin: '0' }}>
-                      {/* Chain link button between rows */}
-                      <div style={{ width: 3, marginRight: 4, flexShrink: 0 }}>
-                        {(() => {
-                          const nextId = fields[i + 1].id;
-                          const linked = linkGroups.some(g => g.has(f.id) && g.has(nextId));
-                          const color = linked ? getGroupColor(getGroupForLayer(f.id)) : '#333';
-                          return <div style={{ width: 3, height: '100%', borderRadius: 2, background: linked ? color : 'transparent' }} />;
-                        })()}
-                      </div>
-                      <button className="icon-btn" onClick={() => toggleLink(f.id, fields[i + 1].id)}
-                        title={linkGroups.some(g => g.has(f.id) && g.has(fields[i + 1].id)) ? 'Unlink layers' : 'Link layers'}
-                        style={{
-                          width: 24, height: 18, background: 'none', border: '1px solid transparent',
-                          borderRadius: 4, cursor: 'pointer', display: 'flex', alignItems: 'center',
-                          justifyContent: 'center', padding: 0, margin: '0 auto',
-                          color: linkGroups.some(g => g.has(f.id) && g.has(fields[i + 1].id))
-                            ? getGroupColor(getGroupForLayer(f.id)) : '#444',
-                        }}>
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                          {linkGroups.some(g => g.has(f.id) && g.has(fields[i + 1].id)) ? (
-                            <>
-                              <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
-                              <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
-                            </>
-                          ) : (
-                            <>
-                              <path d="M16.88 3.549a4.998 4.998 0 0 1 3.532 6.119"/>
-                              <path d="M7.12 20.451a4.998 4.998 0 0 1-3.532-6.119"/>
-                              <line x1="1" y1="1" x2="23" y2="23" strokeOpacity="0.4"/>
-                            </>
-                          )}
-                        </svg>
-                      </button>
-                      <div style={{ flex: 1, borderTop: '1px solid #222' }} />
-                    </div>
-                  )}
+                  {i < fields.length - 1 && <div style={{ borderTop: '1px solid #222', margin: '2px 0' }} />}
                 </React.Fragment>
               );
             });
