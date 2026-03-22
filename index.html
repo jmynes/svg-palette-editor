@@ -545,7 +545,7 @@ const PATHS = {
   box: "M232.26,210.72l-29.34,7.86c-4.05,1.09-8.22-1.32-9.3-5.37l-7.86-29.34c-1.09-4.05,1.32-8.22,5.37-9.3l29.34-7.86c4.05-1.09,8.22,1.32,9.3,5.37l7.86,29.34C238.72,205.47,236.31,209.64,232.26,210.72z",
 };
 
-const PRESETS = [
+const DEFAULT_PRESETS = [
   { name: 'Original', bg: '#1D1627', letter: '#FEFEFE', line1: '#F74344', line2: '#F74344', line3: '#FFFFFF', box: '#FFFFFF' },
   { name: 'Signal Red', bg: '#E53935', letter: '#FFFFFF', line1: '#FFCDD2', line2: '#FFCDD2', line3: '#FFFFFF', box: '#FFFFFF' },
   { name: 'Onyx Vermillion', bg: '#121212', letter: '#FFFFFF', line1: '#FF3D00', line2: '#FF3D00', line3: '#FFFFFF', box: '#FFFFFF' },
@@ -603,10 +603,14 @@ function App() {
   const getGroupForLayer = (id) => linkGroups.findIndex(g => g.has(id));
   const getGroupColor = (idx) => idx >= 0 ? LINK_COLORS[idx % LINK_COLORS.length] : null;
 
-  // Click a layer's link button: first click selects it, second click links to it
+  // Click a layer's link button: first click selects, second links/unlinks
   const handleLinkClick = (id) => {
     if (linkingFrom === null) {
-      // Check if already in a group — if so, unlink it
+      // Start linking from this layer
+      setLinkingFrom(id);
+      showToast('Click another layer to link (click self to unlink)');
+    } else if (linkingFrom === id) {
+      // Clicked self — if in a group, unlink this layer from it
       const gi = getGroupForLayer(id);
       if (gi >= 0) {
         setLinkGroups(prev => {
@@ -616,32 +620,39 @@ function App() {
           return groups;
         });
         showToast('Unlinked layer');
-        return;
       }
-      // Start linking
-      setLinkingFrom(id);
-      showToast('Click another layer to link');
-    } else if (linkingFrom === id) {
-      // Cancel
       setLinkingFrom(null);
-      showToast('Link cancelled');
     } else {
-      // Complete link
-      setLinkGroups(prev => {
-        const groups = prev.map(g => new Set(g));
-        const gA = groups.findIndex(g => g.has(linkingFrom));
-        const gB = groups.findIndex(g => g.has(id));
-        if (gA >= 0 && gA === gB) { setLinkingFrom(null); return groups; } // already linked
-        if (gA >= 0 && gB >= 0) {
-          for (const x of groups[gB]) groups[gA].add(x);
-          groups.splice(gB, 1);
-        } else if (gA >= 0) { groups[gA].add(id); }
-        else if (gB >= 0) { groups[gB].add(linkingFrom); }
-        else { groups.push(new Set([linkingFrom, id])); }
-        return groups;
-      });
-      setLinkingFrom(null);
-      showToast('Layers linked');
+      // Clicked a different layer — check if already linked
+      const gFrom = getGroupForLayer(linkingFrom);
+      const gTo = getGroupForLayer(id);
+      if (gFrom >= 0 && gFrom === gTo) {
+        // Already in same group — unlink the target
+        setLinkGroups(prev => {
+          const groups = prev.map(g => new Set(g));
+          groups[gFrom].delete(id);
+          if (groups[gFrom].size < 2) groups.splice(gFrom, 1);
+          return groups;
+        });
+        // Stay in linking mode with the original layer
+        showToast('Unlinked — click another to link');
+      } else {
+        // Link them
+        setLinkGroups(prev => {
+          const groups = prev.map(g => new Set(g));
+          const gA = groups.findIndex(g => g.has(linkingFrom));
+          const gB = groups.findIndex(g => g.has(id));
+          if (gA >= 0 && gB >= 0) {
+            for (const x of groups[gB]) groups[gA].add(x);
+            groups.splice(gB, 1);
+          } else if (gA >= 0) { groups[gA].add(id); }
+          else if (gB >= 0) { groups[gB].add(linkingFrom); }
+          else { groups.push(new Set([linkingFrom, id])); }
+          return groups;
+        });
+        // Stay in linking mode so you can keep adding
+        showToast('Linked — click another or press Esc');
+      }
     }
   };
 
@@ -686,7 +697,30 @@ function App() {
     return () => { document.removeEventListener('pointerdown', handleClick); document.removeEventListener('keydown', handleKey); };
   }, [showSettings]);
 
+  // Presets: built-ins + user-saved (persisted to localStorage)
+  const [userPresets, setUserPresets] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('spe-user-presets') || '[]'); } catch { return []; }
+  });
+  useEffect(() => { localStorage.setItem('spe-user-presets', JSON.stringify(userPresets)); }, [userPresets]);
+
+  const allPresets = [...DEFAULT_PRESETS, ...userPresets];
   const applyPreset = (p) => { setBg(p.bg); setLetter(p.letter); setLine1(p.line1); setLine2(p.line2); setLine3(p.line3); setBox(p.box); };
+
+  const savePreset = () => {
+    const name = `Custom ${userPresets.length + 1}`;
+    setUserPresets(prev => [...prev, { name, bg, letter, line1, line2, line3, box }]);
+    showToast(`Saved preset "${name}"`);
+  };
+
+  const renamePreset = (idx, newName) => {
+    setUserPresets(prev => prev.map((p, i) => i === idx ? { ...p, name: newName } : p));
+  };
+
+  const deletePreset = (idx) => {
+    const name = userPresets[idx].name;
+    setUserPresets(prev => prev.filter((_, i) => i !== idx));
+    showToast(`Deleted "${name}"`);
+  };
 
   const downloadSvg = () => {
     const parts = [`<svg xmlns="http://www.w3.org/2000/svg" viewBox="8 7 264 264">`];
@@ -865,9 +899,64 @@ function App() {
         </div>
 
         <div>
-          <div style={{ fontSize: 13, fontWeight: 600, color: '#666', marginBottom: 10, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Presets</div>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: '#666', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Presets</div>
+            <button className="icon-btn" onClick={savePreset} style={{
+              padding: '4px 10px', background: '#1a1a1a', border: '1px solid #333',
+              borderRadius: 6, color: '#aaa', cursor: 'pointer', fontSize: 11, fontWeight: 600,
+              display: 'flex', alignItems: 'center', gap: 4,
+            }}>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+                <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+              </svg>
+              Save
+            </button>
+          </div>
+
+          {/* User presets */}
+          {userPresets.length > 0 && (
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, marginBottom: 8 }}>
+              {userPresets.map((p, idx) => (
+                <div key={`user-${idx}`} style={{
+                  display: 'flex', alignItems: 'center', gap: 4, padding: '6px 8px',
+                  background: '#1a1a1a', border: '1px solid #262626', borderRadius: 8,
+                }} onMouseOver={e => e.currentTarget.style.borderColor = '#444'}
+                   onMouseOut={e => e.currentTarget.style.borderColor = '#262626'}>
+                  <div onClick={() => applyPreset(p)} style={{ cursor: 'pointer', flexShrink: 0 }}>
+                    <div style={{ width: 28, height: 28, borderRadius: 6, overflow: 'hidden', border: '1px solid #333',
+                      background: p.bg === 'transparent' ? 'repeating-conic-gradient(#222 0% 25%, #111 0% 50%) 50%/12px 12px' : p.bg,
+                    }}>
+                      <PuntIcon bg={p.bg} letter={p.letter} line1={p.line1} line2={p.line2} line3={p.line3} box={p.box} size={28} />
+                    </div>
+                  </div>
+                  <input type="text" defaultValue={p.name} key={p.name}
+                    onBlur={e => renamePreset(idx, e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter') e.target.blur(); }}
+                    style={{
+                      flex: 1, minWidth: 0, fontSize: 11, color: '#ccc', background: 'none',
+                      border: '1px solid transparent', borderRadius: 3, padding: '2px 4px',
+                      outline: 'none', cursor: 'text', transition: 'all 0.2s',
+                    }}
+                    onFocus={e => { e.target.style.borderColor = '#E53935'; e.target.style.background = '#111'; }}
+                    onBlurCapture={e => { e.target.style.borderColor = 'transparent'; e.target.style.background = 'none'; }}
+                  />
+                  <button className="icon-btn" onClick={() => deletePreset(idx)} title="Delete preset" style={{
+                    width: 20, height: 20, background: 'none', border: '1px solid transparent',
+                    borderRadius: 4, color: '#555', cursor: 'pointer', flexShrink: 0,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0,
+                  }}>
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+                      <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                    </svg>
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Built-in presets */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
-            {PRESETS.map(p => (
+            {DEFAULT_PRESETS.map(p => (
               <button key={p.name} onClick={() => applyPreset(p)} style={{
                 display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px',
                 background: '#1a1a1a', border: '1px solid #262626', borderRadius: 8,
