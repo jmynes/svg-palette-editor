@@ -18,12 +18,38 @@
   .mono { font-family: 'JetBrains Mono', monospace; }
   .icon-btn { transition: color 0.15s, background 0.15s, border-color 0.15s; }
   .icon-btn:hover { color: #ddd !important; background: #2a2a2a !important; border-color: #555 !important; }
+  @keyframes toast-in { from { opacity: 0; transform: translateX(-50%) translateY(8px); } to { opacity: 1; transform: translateX(-50%) translateY(0); } }
 </style>
 </head>
 <body>
 <div id="root"></div>
 <script type="text/babel">
 const { useState, useCallback, useRef, useEffect } = React;
+
+// === Toast notification ===
+let toastTimeout = null;
+function Toast({ message }) {
+  return message ? (
+    <div style={{
+      position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)',
+      background: '#222', border: '1px solid #444', borderRadius: 8,
+      padding: '8px 20px', color: '#ddd', fontSize: 13, fontWeight: 500,
+      boxShadow: '0 8px 24px rgba(0,0,0,0.6)', zIndex: 9999,
+      animation: 'toast-in 0.2s ease-out',
+      fontFamily: 'JetBrains Mono, monospace',
+    }}>{message}</div>
+  ) : null;
+}
+
+function useToast() {
+  const [msg, setMsg] = useState(null);
+  const show = useCallback((text) => {
+    setMsg(text);
+    clearTimeout(toastTimeout);
+    toastTimeout = setTimeout(() => setMsg(null), 1800);
+  }, []);
+  return [msg, show];
+}
 
 // === Color conversion utilities ===
 function hexToHsv(hex) {
@@ -227,7 +253,7 @@ function formatColor(value, fmt) {
   return p.alpha < 1 ? `${p.hex} / ${Math.round(p.alpha * 100)}%` : p.hex;
 }
 
-function ColorField({ label, value, onChange, element, visible, onToggleVisibility, onHover, onLeave }) {
+function ColorField({ label, value, onChange, element, visible, onToggleVisibility, onHover, onLeave, onToast }) {
   const [open, setOpen] = useState(false);
   const [lastColor, setLastColor] = useState('#1D1627');
   const [fmt, setFmt] = useState(0);
@@ -287,7 +313,7 @@ function ColorField({ label, value, onChange, element, visible, onToggleVisibili
           onClick={e => e.stopPropagation()} />
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 0 }} onClick={e => e.stopPropagation()}>
-          <button className="icon-btn" onClick={() => navigator.clipboard.writeText(formatColor(value, FORMATS[fmt]))} title="Copy" style={{
+          <button className="icon-btn" onClick={() => { const t = formatColor(value, FORMATS[fmt]); navigator.clipboard.writeText(t); onToast && onToast(`Copied ${t}`); }} title="Copy" style={{
             width: 28, height: 28, background: '#1a1a1a', border: '1px solid #333', borderRight: 'none',
             borderRadius: '4px 0 0 4px', color: '#999', cursor: 'pointer',
             display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
@@ -406,6 +432,7 @@ function App() {
   const toggleVis = (key) => setVis(v => ({ ...v, [key]: !v[key] }));
   const [hoveredLayer, setHoveredLayer] = useState(null);
   const [highlightOnHover, setHighlightOnHover] = useState(true);
+  const [toastMsg, showToast] = useToast();
   const [showSettings, setShowSettings] = useState(false);
   const settingsRef = useRef(null);
 
@@ -439,8 +466,10 @@ function App() {
     URL.revokeObjectURL(url);
   };
 
-  const copyHex = () => {
-    navigator.clipboard.writeText(`bg: ${bg}, letter: ${letter}, line1: ${line1}, line2: ${line2}, line3: ${line3}, box: ${box}`);
+  const copyAll = () => {
+    const text = `bg: ${bg}, letter: ${letter}, line1: ${line1}, line2: ${line2}, line3: ${line3}, box: ${box}`;
+    navigator.clipboard.writeText(text);
+    showToast('Copied all colors');
   };
 
   const colors = { bg, letter, line1, line2, line3, box, vis, hovered: highlightOnHover ? hoveredLayer : null };
@@ -513,17 +542,17 @@ function App() {
         </div>
 
         <div style={{ background: '#161616', borderRadius: 12, padding: 16, border: '1px solid #222' }}>
-          <ColorField label="Background" element="Rounded rect fill" value={bg} onChange={setBg} visible={vis.bg} onToggleVisibility={() => toggleVis('bg')} onHover={() => setHoveredLayer('bg')} onLeave={() => setHoveredLayer(null)} />
+          <ColorField label="Background" element="Rounded rect fill" value={bg} onChange={setBg} visible={vis.bg} onToggleVisibility={() => toggleVis('bg')} onHover={() => setHoveredLayer('bg')} onLeave={() => setHoveredLayer(null)} onToast={showToast} />
           <div style={{ borderTop: '1px solid #222', margin: '4px 0' }} />
-          <ColorField label="P Letter" element="Main letterform" value={letter} onChange={setLetter} visible={vis.letter} onToggleVisibility={() => toggleVis('letter')} onHover={() => setHoveredLayer('letter')} onLeave={() => setHoveredLayer(null)} />
+          <ColorField label="P Letter" element="Main letterform" value={letter} onChange={setLetter} visible={vis.letter} onToggleVisibility={() => toggleVis('letter')} onHover={() => setHoveredLayer('letter')} onLeave={() => setHoveredLayer(null)} onToast={showToast} />
           <div style={{ borderTop: '1px solid #222', margin: '4px 0' }} />
-          <ColorField label="Line 1" element="Short top speed line" value={line1} onChange={setLine1} visible={vis.line1} onToggleVisibility={() => toggleVis('line1')} onHover={() => setHoveredLayer('line1')} onLeave={() => setHoveredLayer(null)} />
+          <ColorField label="Line 1" element="Short top speed line" value={line1} onChange={setLine1} visible={vis.line1} onToggleVisibility={() => toggleVis('line1')} onHover={() => setHoveredLayer('line1')} onLeave={() => setHoveredLayer(null)} onToast={showToast} />
           <div style={{ borderTop: '1px solid #222', margin: '4px 0' }} />
-          <ColorField label="Line 2" element="Long middle speed line" value={line2} onChange={setLine2} visible={vis.line2} onToggleVisibility={() => toggleVis('line2')} onHover={() => setHoveredLayer('line2')} onLeave={() => setHoveredLayer(null)} />
+          <ColorField label="Line 2" element="Long middle speed line" value={line2} onChange={setLine2} visible={vis.line2} onToggleVisibility={() => toggleVis('line2')} onHover={() => setHoveredLayer('line2')} onLeave={() => setHoveredLayer(null)} onToast={showToast} />
           <div style={{ borderTop: '1px solid #222', margin: '4px 0' }} />
-          <ColorField label="Line 3" element="Bottom speed line" value={line3} onChange={setLine3} visible={vis.line3} onToggleVisibility={() => toggleVis('line3')} onHover={() => setHoveredLayer('line3')} onLeave={() => setHoveredLayer(null)} />
+          <ColorField label="Line 3" element="Bottom speed line" value={line3} onChange={setLine3} visible={vis.line3} onToggleVisibility={() => toggleVis('line3')} onHover={() => setHoveredLayer('line3')} onLeave={() => setHoveredLayer(null)} onToast={showToast} />
           <div style={{ borderTop: '1px solid #222', margin: '4px 0' }} />
-          <ColorField label="Box" element="Tilted square" value={box} onChange={setBox} visible={vis.box} onToggleVisibility={() => toggleVis('box')} onHover={() => setHoveredLayer('box')} onLeave={() => setHoveredLayer(null)} />
+          <ColorField label="Box" element="Tilted square" value={box} onChange={setBox} visible={vis.box} onToggleVisibility={() => toggleVis('box')} onHover={() => setHoveredLayer('box')} onLeave={() => setHoveredLayer(null)} onToast={showToast} />
         </div>
 
         <div style={{ display: 'flex', gap: 8 }}>
@@ -534,10 +563,10 @@ function App() {
           }} onMouseOver={e => { e.currentTarget.style.background = '#FF5252'; e.currentTarget.style.borderColor = '#FF5252'; }}
              onMouseOut={e => { e.currentTarget.style.background = '#E53935'; e.currentTarget.style.borderColor = '#E53935'; }}
           >Download SVG</button>
-          <button className="icon-btn" onClick={copyHex} style={{
+          <button className="icon-btn" onClick={copyAll} style={{
             padding: '12px 16px', background: '#1a1a1a', border: '1px solid #333',
             borderRadius: 8, color: '#aaa', cursor: 'pointer', fontSize: 13,
-          }}>Copy Hex</button>
+          }}>Copy All</button>
         </div>
 
         <div>
@@ -562,6 +591,7 @@ function App() {
           </div>
         </div>
       </div>
+      <Toast message={toastMsg} />
     </div>
   );
 }
