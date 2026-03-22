@@ -335,64 +335,56 @@ function ColorInput({ value, fmt, onChange, onToast }) {
     if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
 
     const curFmt = FORMATS[fmt];
-    if (curFmt === 'hex') return; // No octet adjustment for hex
+    if (curFmt === 'hex') return;
 
     e.preventDefault();
     const delta = e.key === 'ArrowUp' ? 1 : -1;
-    const step = e.shiftKey ? 10 : 1;
-    const pos = e.target.selectionStart;
+    const pos = e.target.selectionStart || 0;
     const text = localVal;
 
-    // Find all numbers in the string and which one the cursor is in/near
-    const numRegex = /[\d.]+/g;
-    let match;
+    // Find all numbers in the string
     const nums = [];
-    while ((match = numRegex.exec(text)) !== null) {
-      nums.push({ value: match[0], start: match.index, end: match.index + match[0].length });
+    const re = /[\d.]+/g;
+    let m;
+    while ((m = re.exec(text)) !== null) {
+      nums.push({ val: m[0], start: m.index, end: m.index + m[0].length });
     }
+    if (nums.length === 0) return;
 
-    // Find the number closest to cursor
-    let target = null;
-    for (const n of nums) {
-      if (pos >= n.start && pos <= n.end) { target = n; break; }
-    }
+    // Find which number the cursor is in or nearest to
+    let target = nums.find(n => pos >= n.start && pos <= n.end);
     if (!target) {
-      // Find nearest
-      let minDist = Infinity;
-      for (const n of nums) {
-        const dist = Math.min(Math.abs(pos - n.start), Math.abs(pos - n.end));
-        if (dist < minDist) { minDist = dist; target = n; }
-      }
+      target = nums.reduce((best, n) => {
+        const d = Math.min(Math.abs(pos - n.start), Math.abs(pos - n.end));
+        return d < best.d ? { ...n, d } : best;
+      }, { ...nums[0], d: Infinity });
     }
-    if (!target) return;
 
     const idx = nums.indexOf(target);
-    const isAlpha = (curFmt === 'rgba' && idx === 3) || (curFmt === 'hsla' && idx === 3);
-    const alphaStep = e.shiftKey ? 0.10 : 0.01;
-    let num = parseFloat(target.value);
-    num += delta * (isAlpha ? alphaStep : step);
+    const isAlpha = idx === 3;
+    const step = isAlpha ? (e.shiftKey ? 0.10 : 0.01) : (e.shiftKey ? 10 : 1);
 
-    // Clamp based on position in the format
+    let num = parseFloat(target.val) + delta * step;
+
+    // Clamp
     if (curFmt === 'rgba') {
-      if (idx < 3) num = Math.max(0, Math.min(255, Math.round(num))); // r, g, b
-      else num = Math.max(0, Math.min(1, Math.round(num * 100) / 100)); // alpha
+      if (idx < 3) num = Math.max(0, Math.min(255, Math.round(num)));
+      else num = Math.max(0, Math.min(1, Math.round(num * 100) / 100));
     } else if (curFmt === 'hsla') {
-      if (idx === 0) num = ((num % 360) + 360) % 360; // hue wraps
-      else if (idx < 3) num = Math.max(0, Math.min(100, Math.round(num))); // s%, l%
-      else num = Math.max(0, Math.min(1, Math.round(num * 100) / 100)); // alpha
+      if (idx === 0) num = ((Math.round(num) % 360) + 360) % 360;
+      else if (idx < 3) num = Math.max(0, Math.min(100, Math.round(num)));
+      else num = Math.max(0, Math.min(1, Math.round(num * 100) / 100));
     }
 
-    const newStr = isFloat && idx >= 3 ? num.toFixed(2) : String(Math.round(num));
+    const newStr = isAlpha ? num.toFixed(2) : String(num);
     const newText = text.substring(0, target.start) + newStr + text.substring(target.end);
     setLocalVal(newText);
     tryApply(newText);
 
-    // Restore cursor position within the number
-    const cursorPos = target.start + newStr.length;
+    const restoreStart = target.start;
+    const restoreEnd = target.start + newStr.length;
     setTimeout(() => {
-      if (inputRef.current) {
-        inputRef.current.setSelectionRange(target.start, cursorPos);
-      }
+      if (inputRef.current) inputRef.current.setSelectionRange(restoreStart, restoreEnd);
     }, 0);
   };
 
