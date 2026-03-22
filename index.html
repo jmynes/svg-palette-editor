@@ -593,6 +593,51 @@ function App() {
   const setFmt = (key, val) => setFmts(f => ({ ...f, [key]: val }));
   const [hoveredLayer, setHoveredLayer] = useState(null);
   const [highlightOnHover, setHighlightOnHover] = useState(true);
+  // Link groups: array of Sets. Each Set contains layer IDs that are synced.
+  const [linkGroups, setLinkGroups] = useState([]);
+  const LINK_COLORS = ['#E53935', '#2196F3', '#4CAF50', '#FF9800', '#AB47BC'];
+
+  const getGroupForLayer = (id) => linkGroups.findIndex(g => g.has(id));
+  const getGroupColor = (idx) => idx >= 0 ? LINK_COLORS[idx % LINK_COLORS.length] : null;
+
+  // Toggle link between two adjacent layers
+  const toggleLink = (idA, idB) => {
+    setLinkGroups(prev => {
+      const groups = prev.map(g => new Set(g));
+      const gA = groups.findIndex(g => g.has(idA));
+      const gB = groups.findIndex(g => g.has(idB));
+
+      if (gA >= 0 && gA === gB) {
+        // Already in same group — unlink by splitting
+        groups[gA].delete(idB);
+        if (groups[gA].size < 2) groups.splice(gA, 1);
+        return groups;
+      }
+      if (gA >= 0 && gB >= 0) {
+        // Merge two groups
+        for (const id of groups[gB]) groups[gA].add(id);
+        groups.splice(gB, 1);
+        return groups;
+      }
+      if (gA >= 0) { groups[gA].add(idB); return groups; }
+      if (gB >= 0) { groups[gB].add(idA); return groups; }
+      // Neither in a group — create new
+      groups.push(new Set([idA, idB]));
+      return groups;
+    });
+  };
+
+  // Wrap a setter to propagate to linked layers
+  const SETTERS = { bg: setBg, letter: setLetter, line1: setLine1, line2: setLine2, line3: setLine3, box: setBox };
+  const linkedSet = (id, value) => {
+    SETTERS[id](value);
+    const gi = linkGroups.findIndex(g => g.has(id));
+    if (gi >= 0) {
+      for (const otherId of linkGroups[gi]) {
+        if (otherId !== id) SETTERS[otherId](value);
+      }
+    }
+  };
   const [toastMsg, showToast] = useToast();
   const [showSettings, setShowSettings] = useState(false);
   const settingsRef = useRef(null);
@@ -705,22 +750,77 @@ function App() {
         </div>
 
         <div style={{ background: '#161616', borderRadius: 12, padding: 16, border: '1px solid #222' }}>
-          {[
-            { id: 'bg', label: 'Background', element: 'Rounded rect fill', value: bg, set: setBg },
-            { id: 'letter', label: 'P Letter', element: 'Main letterform', value: letter, set: setLetter },
-            { id: 'line1', label: 'Line 1', element: 'Short top speed line', value: line1, set: setLine1 },
-            { id: 'line2', label: 'Line 2', element: 'Long middle speed line', value: line2, set: setLine2 },
-            { id: 'line3', label: 'Line 3', element: 'Bottom speed line', value: line3, set: setLine3 },
-            { id: 'box', label: 'Box', element: 'Tilted square', value: box, set: setBox },
-          ].map((f, i, arr) => (
-            <React.Fragment key={f.id}>
-              <ColorField label={f.label} element={f.element} value={f.value} onChange={f.set}
-                visible={vis[f.id]} onToggleVisibility={() => toggleVis(f.id)}
-                onHover={() => setHoveredLayer(f.id)} onLeave={() => setHoveredLayer(null)}
-                onToast={showToast} fmt={fmts[f.id]} onFmtChange={(v) => setFmt(f.id, v)} />
-              {i < arr.length - 1 && <div style={{ borderTop: '1px solid #222', margin: '4px 0' }} />}
-            </React.Fragment>
-          ))}
+          {(() => {
+            const fields = [
+              { id: 'bg', label: 'Background', element: 'Rounded rect fill', value: bg },
+              { id: 'letter', label: 'P Letter', element: 'Main letterform', value: letter },
+              { id: 'line1', label: 'Line 1', element: 'Short top speed line', value: line1 },
+              { id: 'line2', label: 'Line 2', element: 'Long middle speed line', value: line2 },
+              { id: 'line3', label: 'Line 3', element: 'Bottom speed line', value: line3 },
+              { id: 'box', label: 'Box', element: 'Tilted square', value: box },
+            ];
+            return fields.map((f, i) => {
+              const gi = getGroupForLayer(f.id);
+              const groupColor = getGroupColor(gi);
+              return (
+                <React.Fragment key={f.id}>
+                  <div style={{ display: 'flex' }}>
+                    {/* Link group indicator bar */}
+                    <div style={{
+                      width: 3, flexShrink: 0, borderRadius: 2, marginRight: 4,
+                      background: groupColor || 'transparent',
+                      transition: 'background 0.2s',
+                    }} />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <ColorField label={f.label} element={f.element} value={f.value}
+                        onChange={(v) => linkedSet(f.id, v)}
+                        visible={vis[f.id]} onToggleVisibility={() => toggleVis(f.id)}
+                        onHover={() => setHoveredLayer(f.id)} onLeave={() => setHoveredLayer(null)}
+                        onToast={showToast} fmt={fmts[f.id]} onFmtChange={(v) => setFmt(f.id, v)} />
+                    </div>
+                  </div>
+                  {i < fields.length - 1 && (
+                    <div style={{ display: 'flex', alignItems: 'center', margin: '0' }}>
+                      {/* Chain link button between rows */}
+                      <div style={{ width: 3, marginRight: 4, flexShrink: 0 }}>
+                        {(() => {
+                          const nextId = fields[i + 1].id;
+                          const linked = linkGroups.some(g => g.has(f.id) && g.has(nextId));
+                          const color = linked ? getGroupColor(getGroupForLayer(f.id)) : '#333';
+                          return <div style={{ width: 3, height: '100%', borderRadius: 2, background: linked ? color : 'transparent' }} />;
+                        })()}
+                      </div>
+                      <button className="icon-btn" onClick={() => toggleLink(f.id, fields[i + 1].id)}
+                        title={linkGroups.some(g => g.has(f.id) && g.has(fields[i + 1].id)) ? 'Unlink layers' : 'Link layers'}
+                        style={{
+                          width: 24, height: 18, background: 'none', border: '1px solid transparent',
+                          borderRadius: 4, cursor: 'pointer', display: 'flex', alignItems: 'center',
+                          justifyContent: 'center', padding: 0, margin: '0 auto',
+                          color: linkGroups.some(g => g.has(f.id) && g.has(fields[i + 1].id))
+                            ? getGroupColor(getGroupForLayer(f.id)) : '#444',
+                        }}>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          {linkGroups.some(g => g.has(f.id) && g.has(fields[i + 1].id)) ? (
+                            <>
+                              <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
+                              <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
+                            </>
+                          ) : (
+                            <>
+                              <path d="M16.88 3.549a4.998 4.998 0 0 1 3.532 6.119"/>
+                              <path d="M7.12 20.451a4.998 4.998 0 0 1-3.532-6.119"/>
+                              <line x1="1" y1="1" x2="23" y2="23" strokeOpacity="0.4"/>
+                            </>
+                          )}
+                        </svg>
+                      </button>
+                      <div style={{ flex: 1, borderTop: '1px solid #222' }} />
+                    </div>
+                  )}
+                </React.Fragment>
+              );
+            });
+          })()}
         </div>
 
         <div style={{ display: 'flex', gap: 8 }}>
