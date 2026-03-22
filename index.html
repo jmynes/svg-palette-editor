@@ -253,10 +253,10 @@ function formatColor(value, fmt) {
   return p.alpha < 1 ? `${p.hex} / ${Math.round(p.alpha * 100)}%` : p.hex;
 }
 
-function ColorField({ label, value, onChange, element, visible, onToggleVisibility, onHover, onLeave, onToast }) {
+function ColorField({ label, value, onChange, element, visible, onToggleVisibility, onHover, onLeave, onToast, fmt, onFmtChange }) {
   const [open, setOpen] = useState(false);
   const [lastColor, setLastColor] = useState('#1D1627');
-  const [fmt, setFmt] = useState(0);
+  const setFmt = (fn) => onFmtChange(typeof fn === 'function' ? fn(fmt) : fn);
   const isTransparent = value === 'transparent';
 
   useEffect(() => {
@@ -430,6 +430,8 @@ function App() {
   const [previewBg, setPreviewBg] = useState('#0a0a0a');
   const [vis, setVis] = useState({ bg: true, letter: true, line1: true, line2: true, line3: true, box: true });
   const toggleVis = (key) => setVis(v => ({ ...v, [key]: !v[key] }));
+  const [fmts, setFmts] = useState({ bg: 0, letter: 0, line1: 0, line2: 0, line3: 0, box: 0 });
+  const setFmt = (key, val) => setFmts(f => ({ ...f, [key]: val }));
   const [hoveredLayer, setHoveredLayer] = useState(null);
   const [highlightOnHover, setHighlightOnHover] = useState(true);
   const [toastMsg, showToast] = useToast();
@@ -467,7 +469,8 @@ function App() {
   };
 
   const copyAll = () => {
-    const text = `bg: ${bg}, letter: ${letter}, line1: ${line1}, line2: ${line2}, line3: ${line3}, box: ${box}`;
+    const vals = { bg, letter, line1, line2, line3, box };
+    const text = Object.entries(vals).map(([k, v]) => `${k}: ${formatColor(v, FORMATS[fmts[k]])}`).join(', ');
     navigator.clipboard.writeText(text);
     showToast('Copied all colors');
   };
@@ -542,17 +545,22 @@ function App() {
         </div>
 
         <div style={{ background: '#161616', borderRadius: 12, padding: 16, border: '1px solid #222' }}>
-          <ColorField label="Background" element="Rounded rect fill" value={bg} onChange={setBg} visible={vis.bg} onToggleVisibility={() => toggleVis('bg')} onHover={() => setHoveredLayer('bg')} onLeave={() => setHoveredLayer(null)} onToast={showToast} />
-          <div style={{ borderTop: '1px solid #222', margin: '4px 0' }} />
-          <ColorField label="P Letter" element="Main letterform" value={letter} onChange={setLetter} visible={vis.letter} onToggleVisibility={() => toggleVis('letter')} onHover={() => setHoveredLayer('letter')} onLeave={() => setHoveredLayer(null)} onToast={showToast} />
-          <div style={{ borderTop: '1px solid #222', margin: '4px 0' }} />
-          <ColorField label="Line 1" element="Short top speed line" value={line1} onChange={setLine1} visible={vis.line1} onToggleVisibility={() => toggleVis('line1')} onHover={() => setHoveredLayer('line1')} onLeave={() => setHoveredLayer(null)} onToast={showToast} />
-          <div style={{ borderTop: '1px solid #222', margin: '4px 0' }} />
-          <ColorField label="Line 2" element="Long middle speed line" value={line2} onChange={setLine2} visible={vis.line2} onToggleVisibility={() => toggleVis('line2')} onHover={() => setHoveredLayer('line2')} onLeave={() => setHoveredLayer(null)} onToast={showToast} />
-          <div style={{ borderTop: '1px solid #222', margin: '4px 0' }} />
-          <ColorField label="Line 3" element="Bottom speed line" value={line3} onChange={setLine3} visible={vis.line3} onToggleVisibility={() => toggleVis('line3')} onHover={() => setHoveredLayer('line3')} onLeave={() => setHoveredLayer(null)} onToast={showToast} />
-          <div style={{ borderTop: '1px solid #222', margin: '4px 0' }} />
-          <ColorField label="Box" element="Tilted square" value={box} onChange={setBox} visible={vis.box} onToggleVisibility={() => toggleVis('box')} onHover={() => setHoveredLayer('box')} onLeave={() => setHoveredLayer(null)} onToast={showToast} />
+          {[
+            { id: 'bg', label: 'Background', element: 'Rounded rect fill', value: bg, set: setBg },
+            { id: 'letter', label: 'P Letter', element: 'Main letterform', value: letter, set: setLetter },
+            { id: 'line1', label: 'Line 1', element: 'Short top speed line', value: line1, set: setLine1 },
+            { id: 'line2', label: 'Line 2', element: 'Long middle speed line', value: line2, set: setLine2 },
+            { id: 'line3', label: 'Line 3', element: 'Bottom speed line', value: line3, set: setLine3 },
+            { id: 'box', label: 'Box', element: 'Tilted square', value: box, set: setBox },
+          ].map((f, i, arr) => (
+            <React.Fragment key={f.id}>
+              <ColorField label={f.label} element={f.element} value={f.value} onChange={f.set}
+                visible={vis[f.id]} onToggleVisibility={() => toggleVis(f.id)}
+                onHover={() => setHoveredLayer(f.id)} onLeave={() => setHoveredLayer(null)}
+                onToast={showToast} fmt={fmts[f.id]} onFmtChange={(v) => setFmt(f.id, v)} />
+              {i < arr.length - 1 && <div style={{ borderTop: '1px solid #222', margin: '4px 0' }} />}
+            </React.Fragment>
+          ))}
         </div>
 
         <div style={{ display: 'flex', gap: 8 }}>
