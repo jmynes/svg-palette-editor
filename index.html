@@ -367,9 +367,10 @@ function ColorInput({ value, fmt, onChange, onToast }) {
     if (!target) return;
 
     const idx = nums.indexOf(target);
-    const isFloat = target.value.includes('.');
+    const isAlpha = (curFmt === 'rgba' && idx === 3) || (curFmt === 'hsla' && idx === 3);
+    const alphaStep = e.shiftKey ? 0.10 : 0.01;
     let num = parseFloat(target.value);
-    num += delta * step;
+    num += delta * (isAlpha ? alphaStep : step);
 
     // Clamp based on position in the format
     if (curFmt === 'rgba') {
