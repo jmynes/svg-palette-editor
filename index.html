@@ -335,12 +335,14 @@ function ColorInput({ value, fmt, onChange, onToast }) {
     if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
 
     const curFmt = FORMATS[fmt];
-    if (curFmt === 'hex') return;
+    const text = localVal;
+
+    // For hex without alpha (no /), skip arrow handling
+    if (curFmt === 'hex' && !text.includes('/')) return;
 
     e.preventDefault();
     const delta = e.key === 'ArrowUp' ? 1 : -1;
     const pos = e.target.selectionStart || 0;
-    const text = localVal;
 
     // Find all numbers in the string
     const nums = [];
@@ -362,13 +364,26 @@ function ColorInput({ value, fmt, onChange, onToast }) {
     }
     if (idx === -1) return;
     const target = nums[idx];
-    const isAlpha = idx === 3;
-    const step = isAlpha ? (e.shiftKey ? 0.10 : 0.01) : (e.shiftKey ? 10 : 1);
+
+    // Determine step size
+    let isPercent = false;
+    let isAlpha = false;
+    if (curFmt === 'hex') {
+      // Hex alpha: #RRGGBB / NN% — the number is a percentage
+      isPercent = true;
+    } else {
+      isAlpha = idx === 3;
+    }
+    const step = isAlpha ? (e.shiftKey ? 0.10 : 0.01)
+      : isPercent ? (e.shiftKey ? 10 : 1)
+      : (e.shiftKey ? 10 : 1);
 
     let num = parseFloat(target.val) + delta * step;
 
     // Clamp
-    if (curFmt === 'rgba') {
+    if (curFmt === 'hex') {
+      num = Math.max(0, Math.min(100, Math.round(num)));
+    } else if (curFmt === 'rgba') {
       if (idx < 3) num = Math.max(0, Math.min(255, Math.round(num)));
       else num = Math.max(0, Math.min(1, Math.round(num * 100) / 100));
     } else if (curFmt === 'hsla') {
